@@ -1,0 +1,48 @@
+application:
+    errorPresenter: Error
+    mapping:
+        *: App\*Module\Presenters\*Presenter
+
+session:
+    expiration: 14 days
+
+di:
+    export:
+        parameters: no
+        tags: no
+
+extensions:
+    console: Contributte\Console\DI\ConsoleExtension(%consoleMode%)
+    nettrine.dbal: Nettrine\DBAL\DI\DbalExtension
+    nettrine.migrations: Nettrine\Migrations\DI\MigrationsExtension
+    nettrine.cache: Nettrine\Cache\DI\CacheExtension
+
+nettrine.dbal:
+    connection:
+        driver: pdo_mysql
+        host: 127.0.0.1
+        port: 3306
+        dbname: test
+        user: test
+        password: test
+        charset: utf8mb4
+
+# nettrine.dbal:
+#     connection:
+#         driver: pdo_mysql
+#         host: %env(DB_HOST)%
+#         port: %env(DB_PORT)%
+#         dbname: %env(DB_NAME)%
+#         user: %env(DB_USER)%
+#         password: %env(DB_PASS)%
+#         charset: utf8mb4
+
+nettrine.migrations:
+    table: doctrine_migration_versions
+    directory: %appDir%/Migrations
+    namespace: App\Migrations
+
+nettrine.cache:
+    driver: Doctrine\Common\Cache\PhpFileCache(%tempDir%/cache/doctrine)
+    # для разработки можно и так:
+    # driver: Doctrine\Common\Cache\ArrayCache()

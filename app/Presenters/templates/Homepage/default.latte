@@ -1,0 +1,135 @@
+{block content}
+    <div id="banner">
+        <h1 n:block=title>Portfolio</h1>
+    </div>
+
+    {form uploadForm, id => 'uploadForm'}
+        <h1>Test</h1>
+            <ul class="errors" n:if="$form->hasErrors()">
+                <li n:foreach="$form->errors as $error">{$error}</li>
+            </ul>
+
+            <div class="row">
+                {*
+                    Varianta А: jeden soubor
+                *}
+                <div class="field">
+                    {label file/}
+                    {input file}
+                </div>
+
+                {*
+                    Varianta B: Multifiles > addMultiUpload
+                    <div class="field">
+                        {label files/}
+                        {input files}
+                    </div>
+                *}
+            </div>
+
+        <div class="actions">
+            {input send, class => 'btn btn-primary btn-primary-for-js'}
+        </div>
+        {foreach $flashes as $flash}
+                <input type="hidden" id="uploadSuccess" value="1">
+        {/foreach}
+    {/form}
+
+    <div id="content">
+        <div class="chatModal">
+            <div class="chatWindow">
+                <div class="chatHeader">
+                    <div class="profileSection">
+                        <i class="fa fa-robot profileIcon"></i>
+                        <h5 class="profileTitle">ChatBot</h5>
+                    </div>
+
+                    <div class="buttonUp">
+                        <button><i class="fa fa-angle-double-up doubleUp"></i></button>
+                    </div>
+
+                    <div class="buttonDown">
+                        <button><i class="fa fa-angle-double-down doubleDown"></i></button>
+                    </div>
+        
+                    <div class="rightSide">
+                        <div class="">
+                            <button class="closeChat">
+                                <i class="fa fa-angle-down"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                <div class="chatBody">
+                    {snippet chatWindowModalMessagesSnipp}
+                        {if isset($chatWindowModalMessages) && $chatWindowModalMessages}     
+                            {define chatWindowModalBlock}
+                                <div class="message {if in_array($queryChatItemAux->role, ['system','assistant','function','tool'])}chatMessage{/if}">
+                                    {$queryChatItemAux->text|breaklines|noescape}
+                                </div>
+                                {if $queryChatItemAux->childs}
+                                    {foreach $queryChatItemAux->childs as $child}
+                                        {var $queryChatItemAux = $child}
+                                        {include chatWindowModalBlock}
+                                    {/foreach}
+                                {/if}
+                            {/define}
+                            {var $queryChatItemAux = $chatWindowModalMessages}
+                            {include chatWindowModalBlock}
+                        {/if}
+                    {/snippet}
+                </div>                
+        
+                <div class="chatFooter">
+                    {snippet chatWindowModalFormSnipp}
+                        {form chatWindowModalForm}
+                            <div class="mb-3">
+                                <div class="assistant-bubble" id="assistant-hello"></div>
+                            </div>
+                            <div class="predefined-dropdown">
+                                <div class="dropdown-selected" tabindex="0">
+                                    <span class="selected-icon">
+                                        <i class="fa fa-question-circle"></i>
+                                        <span>Vyber si možnost</span>
+                                    </span>
+                                    <i class="fa fa-chevron-down chevron"></i>
+                                </div>
+                                <div class="dropdown-list">
+                                    {foreach $form['predefined']->items as $key => $label}
+                                        <label class="dropdown-option" data-key="{$key}">
+                                            {input predefined:$key, class => 'd-none'}
+                                            <span class="icon-option">
+                                                {if $key === 'works'}
+                                                    <i class="fa fa-newspaper"></i>
+                                                {elseif $key === 'markets'}
+                                                    <i class="fa fa-address-book"></i>
+                                                {elseif $key === 'workers'}
+                                                    <i class="fa fa-briefcase"></i>
+                                                {/if}
+                                                <span>{$label}</span>
+                                            </span>
+                                        </label>
+                                    {/foreach}
+                                </div>                                
+                            </div>                                                    
+                            <div class="d-flex">
+                                {input text, class => "form-control me-2", placeholder => "Zadejte dotaz"}
+                                <button name="send" type="submit" class="sendButton">
+                                    <i class="fa fa-paper-plane"></i>
+                                </button>
+
+                            </div>
+                        {/form}
+                        <div class="result-block">{$top5 ?? ''}</div>
+                    {/snippet}
+                </div>
+            </div>
+        </div>
+        
+        <div class="chatButton">
+            <div class="chatText"></div>
+            <div class="chatIcon">
+                <i class="fa fa-comment"></i>
+            </div>
+        </div>	
+    </div>

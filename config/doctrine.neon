@@ -1,0 +1,23 @@
+extensions:
+    doctrine.dbal: Nettrine\DBAL\DI\DbalExtension
+    doctrine.orm: Nettrine\ORM\DI\OrmExtension
+    doctrine.migrations: Nettrine\Migrations\DI\MigrationsExtension
+
+doctrine.dbal:
+    connections:
+        default:
+            driver: pdo_mysql
+            host: %doctrine.host%
+            user: %doctrine.user%
+            password: %doctrine.password%
+            dbname: %doctrine.dbname%
+
+doctrine.orm:
+    managers:
+        default:
+            defaultCache: Symfony\Component\Cache\Adapter\FilesystemAdapter(directory: %tempDir%/cache/doctrine/orm)
+            connection: default
+            mapping:
+                App:
+                    directories: [%appDir%/Model]
+                    namespace: App\Model
