@@ -8,9 +8,6 @@ use Nettrine\ORM\EntityManagerDecorator;
 
 class EntityManager extends EntityManagerDecorator
 {
-
-    use TRepositories;
-
     /**
      * @param string $entityName
      * @return AbstractRepository<T>|ObjectRepository<T>

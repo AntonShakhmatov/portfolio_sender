@@ -12,37 +12,33 @@ di:
         tags: no
 
 extensions:
-    console: Contributte\Console\DI\ConsoleExtension(%consoleMode%)
-    nettrine.dbal: Nettrine\DBAL\DI\DbalExtension
-    nettrine.migrations: Nettrine\Migrations\DI\MigrationsExtension
+    # console: Contributte\Console\DI\ConsoleExtension(%consoleMode%)
+    dbal: Nettrine\DBAL\DI\DbalExtension
+    # dbal.console: Nettrine\DBAL\DI\DbalConsoleExtension
+    orm: Nettrine\ORM\DI\OrmExtension
+    orm.attributes: Nettrine\ORM\DI\OrmAttributesExtension
+    # orm.console: Nettrine\ORM\DI\OrmConsoleExtension
+    migrations: Nettrine\Migrations\DI\MigrationsExtension
     nettrine.cache: Nettrine\Cache\DI\CacheExtension
 
-nettrine.dbal:
-    connection:
-        driver: pdo_mysql
-        host: 127.0.0.1
-        port: 3306
-        dbname: test
-        user: test
-        password: test
-        charset: utf8mb4
+# Подключение к БД лучше держать в local.neon; оставлю тут пример:
 
-# nettrine.dbal:
-#     connection:
-#         driver: pdo_mysql
-#         host: %env(DB_HOST)%
-#         port: %env(DB_PORT)%
-#         dbname: %env(DB_NAME)%
-#         user: %env(DB_USER)%
-#         password: %env(DB_PASS)%
-#         charset: utf8mb4
 
-nettrine.migrations:
+# Если используешь PHP-атрибуты в сущностях:
+orm.attributes:
+    mapping:
+        App/Model/Database/Entity: %appDir%/Model/Database/Entity
+
+# Если остаёшься на аннотациях — вместо блока выше используй это (и УДАЛИ orm.attributes):
+# nettrine.annotations: Nettrine\Annotations\DI\AnnotationsExtension
+# orm.annotations:
+#     mapping:
+#         App: %appDir%
+
+migrations:
     table: doctrine_migration_versions
     directory: %appDir%/Migrations
     namespace: App\Migrations
 
 nettrine.cache:
     driver: Doctrine\Common\Cache\PhpFileCache(%tempDir%/cache/doctrine)
-    # для разработки можно и так:
-    # driver: Doctrine\Common\Cache\ArrayCache()

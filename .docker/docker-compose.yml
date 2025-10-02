@@ -1,10 +1,15 @@
 services:
   php:
     image: example_php
-    build: build/php
+    build:
+      context: .
+      dockerfile: build/php/Dockerfile
     working_dir: /var/www/html
     volumes:
       - ../:/var/www/html
+      - logs:/var/www/html/log         # логи
+      - tmpdir:/var/www/html/temp      # кэш/темп
+      - ../www/uploads:/shared/uploads:ro 
     ports:
       - "80:80" 
     environment:
@@ -24,12 +29,29 @@ services:
       MARIADB_DATABASE: test
       MARIADB_USER: test
       MARIADB_PASSWORD: test
+    volumes:
+      - ./db:/docker-entrypoint-initdb.d:ro 
+      - db_data:/var/lib/mysql
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-uroot", "-proot", "--silent"]
       interval: 5s
       timeout: 3s
       retries: 60
       start_period: 60s
+    restart: unless-stopped
+
+  py:
+    build:
+      context: ./embedding/server/pyclient
+      dockerfile: Dockerfile
+    environment:
+      DB_HOST: database
+      DB_PORT: 3306
+      DB_USER: test
+      DB_PASS: test
+      DB_NAME: test
+    depends_on: [database]
+    command: ["python", "database.py"]
 
   phpmyadmin:
     image: phpmyadmin
@@ -63,19 +85,91 @@ services:
       DB_NAME: test
       DB_USER: test
       DB_PASS: test
-    entrypoint: ["/bin/sh","-c"]
-    command: >
-      echo '* * * * * cd /var/www/html && php bin/console.php app:embeddings >> /proc/1/fd/1 2>&1' > /etc/crontabs/app
-      && crond -f -l 8
+    user: "0:0"
+    command:
+      - sh
+      - -lc
+      - |
+        set -e
+        # 1) Crontab для root
+        mkdir -p /etc/crontabs
+        printf "30 3 * * * cd /var/www/html && php bin/cron.php app:offers >> /proc/1/fd/1 2>&1\n" >> /etc/crontabs/root
+        printf "35 3 * * * cd /var/www/html && php bin/cron.php app:pracezarohem >> /proc/1/fd/1 2>&1\n" >> /etc/crontabs/root
+        printf "40 3 * * * cd /var/www/html && php bin/cron.php app:jobstackit >> /proc/1/fd/1 2>&1\n" >> /etc/crontabs/root
+        printf "5 * * * * cd /var/www/html && php bin/cron.php app:embeddings >> /proc/1/fd/1 2>&1\n" >> /etc/crontabs/root
+
+        # 2) Убираем возможные CRLF (Windows-концы строк) — иначе busybox crond может игнорить задания
+        sed -i 's/\r$//' /etc/crontabs/root
+
+        # 3) Права как требует busybox cron: файл должен принадлежать root и быть 600
+        chown root:root /etc/crontabs/root
+        chmod 600 /etc/crontabs/root
+
+        # 4) Для наглядности покажем, что crontab виден
+        echo "----- /etc/crontabs/root -----"
+        cat /etc/crontabs/root
+        echo "------------------------------"
+
+        # 5) Запускаем crond в форграунде, лог — в stdout
+        crond -f -l 8 -L /dev/stdout
+
     restart: unless-stopped
 
-  embeddings:
-    image: python:3.11-slim
-    working_dir: /var/www/html/embedding/server
+  selenium:
+    image: selenium/standalone-chrome:latest
+    environment:
+      - UPLOADS_DIR=/shared/uploads
     volumes:
-      - ../:/var/www/html
-    command: >
-      sh -lc "pip install -r requirements.txt && python embeddings_api.py"
+      - ../www/uploads:/shared/uploads:ro 
+    shm_size: "2gb"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4444/status"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # selenium:
+  #   image: selenium/hub:4.35.0
+  #   environment:
+  #     - UPLOADS_DIR=/shared/uploads
+  #   volumes:
+  #     - ../www/uploads:/shared/uploads:ro 
+  #   container_name: selenium-hub
+  #   ports: ["4444:4444"]
+  #   healthcheck:
+  #     test: ["CMD", "curl", "-f", "http://localhost:4444/status"]
+  #     interval: 5s
+  #     timeout: 3s
+  #     retries: 10
+
+  # firefox:
+  #   image: selenium/node-firefox:4.35.0
+  #   container_name: selenium-node-firefox
+  #   shm_size: 2g
+  #   depends_on: [selenium]
+  #   environment:
+  #     - SE_EVENT_BUS_HOST=selenium
+  #     - SE_EVENT_BUS_PUBLISH_PORT=4442
+  #     - SE_EVENT_BUS_SUBSCRIBE_PORT=4443
+
+  app: 
+    build:
+      context: .
+      dockerfile: embedding/server/Dockerfile
+    depends_on:
+      selenium:
+        condition: service_healthy
+    environment:
+      - SELENIUM_REMOTE_URL=http://selenium:4444
+
+  embeddings:
+    build:
+      context: .
+      dockerfile: embedding/server/Dockerfile
+    working_dir: /app
+    volumes:
+      - ./embedding/server:/app
+      - ../www/uploads:/app/shared/uploads:ro 
     environment:
       PYTHONUNBUFFERED: 1
       DB_HOST: database
@@ -83,11 +177,47 @@ services:
       DB_NAME: test
       DB_USER: test
       DB_PASS: test
+      GOOGLE_GENAI_API_KEY: "${GOOGLE_GENAI_API_KEY}"   # возьми из .env или из окружения
     depends_on:
       database:
         condition: service_healthy
     ports:
-      - "5000:5000"
+      - "5005:5005"
+
+  scraper: # сервис для soup.py
+    build:
+      context: .
+      dockerfile: embedding/server/Dockerfile
+    working_dir: /app
+    volumes:
+      - ./embedding/server/soup:/app
+    environment:
+      GOOGLE_GENAI_API_KEY: "${GOOGLE_GENAI_API_KEY}"
+    command: ["python", "soup.py"]
+
+  pracezarohem: # сервис для pracezarohem.py
+    build:
+      context: .
+      dockerfile: embedding/server/Dockerfile
+    working_dir: /app
+    volumes:
+      - ./embedding/server/pracezarohem:/app
+    environment:
+      GOOGLE_GENAI_API_KEY: "${GOOGLE_GENAI_API_KEY}"
+    command: ["python", "pracezarohem.py"]
+
+  jobstackit: # сервис для jobstack.it
+    shm_size: "2gb"
+    build:
+      context: .
+      dockerfile: embedding/server/Dockerfile
+    working_dir: /app
+    volumes:
+      - ./embedding/server/jobstackit:/app
+      - ./www/uploads:/var/www/html/www/uploads:ro
+    environment:
+      GOOGLE_GENAI_API_KEY: "${GOOGLE_GENAI_API_KEY}"
+    command: ["python", jobstackit.py]
 
   migrate:
     image: example_php
@@ -105,3 +235,8 @@ services:
         condition: service_healthy
     command: ["php", "bin/console.php", "migrations:migrate", "--no-interaction", "--allow-no-migration"]
     restart: "no"
+
+volumes:
+  db_data:
+  logs:
+  tmpdir:

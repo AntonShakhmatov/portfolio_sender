@@ -227,4 +227,33 @@ final class HomepagePresenter extends Nette\Application\UI\Presenter
         $this->getHttpResponse()->setContentType('text/plain', 'UTF-8');
         $this->sendResponse(new TextResponse($text));
     }
+
+    // public function actionDefault(): void
+    // {
+    //     $path = dirname(__DIR__, 2) . '/.docker/embedding/server/job_parsed.json';
+
+    
+    //     if (!is_file($path)) {
+    //         throw new \RuntimeException("Файл не найден: $path");
+    //     }
+    
+    //     $json = file_get_contents($path);
+    //     if ($json === false) {
+    //         throw new \RuntimeException('Не удалось считать job_parsed.json');
+    //     }
+    
+    //     $data = json_decode($json, true, 512, JSON_THROW_ON_ERROR);
+
+    //     $array = json_encode($data);
+
+    //     $row = [
+    //         'title'   => $array['title']    ?? '',
+    //         'company' => $array['company']  ?? '',
+    //         'location'=> $array['location'] ?? '',
+    //         'salary'  => $array['salary']   ?? '',
+    //         'url'     => $array['url']      ?? '',
+    //     ];
+
+    //     print_r($row);
+    // }    
 }

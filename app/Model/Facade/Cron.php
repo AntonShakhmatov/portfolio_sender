@@ -2,30 +2,31 @@
 namespace App\Model\Facade;
 
 use App\Components\MailSender\MailSender;
-use App\Model\Database\EntityManager;
+// use App\Model\Database\EntityManager;
+use Doctrine\ORM\EntityManagerInterface;
 use App\Model\Utils\SMSSluzba;
 use Monolog\Handler\StreamHandler;
 use Monolog\Logger;
 use App\Presenters\EmbeddingsPresenter;
 use App\Bootstrap;
 use App\Model\Services\EmbeddingsService;
+use App\Model\Services\OffersService;
 
 class Cron
 {
-    /** @var EntityManager */
-    private EntityManager $em;
-
-    /** @var EmbeddingsService */
+    private EntityManagerInterface $em;
     private EmbeddingsService $embeddingsService;
+    private OffersService $offersService;
 
-    /**
-     * Cron constructor.
-     * @param EntityManager $em
-     */
-    public function __construct(EntityManager $em, EmbeddingsService $embeddingsService)
+    public function __construct(
+        EntityManagerInterface $em,
+        EmbeddingsService $embeddingsService,
+        OffersService $offersService
+    )
     {
         $this->em = $em;
         $this->embeddingsService = $embeddingsService;
+        $this->offersService = $offersService;
     }
 
     private function removeDiacritic($text = ''): string
@@ -125,5 +126,20 @@ class Cron
         
         $this->embeddingsService->processProducts();
         $this->embeddingsService->processArticles();
+    }
+
+    public function makeOffersCommand()
+    {
+        $this->offersService->processOffersRewrite();
+    }
+
+    public function makeOffersForPraceZaRohemCommand()
+    {
+        $this->offersService->processOffersPraceZaRohemRewrite();
+    }
+
+    public function makeOffersForJobstackit()
+    {
+        $this->offersService->processOffersJockstackitRewrite();
     }
 }

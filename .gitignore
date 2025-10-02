@@ -3,3 +3,4 @@ config/local.neon
 vendor/
 .idea/
 composer.lock
+www/uploads/

@@ -32,7 +32,10 @@
 		"nettrine/migrations": "^0.9.3",
 		"nettrine/cache": "^0.3.0",
 		"symfony/console": "6.4.2",
-		"contributte/console": "0.10"
+		"contributte/console": "0.10",
+		"nettrine/annotations": "v0.9.0",
+		"beberlei/doctrineextensions": "v1.5.0",
+		"ramsey/uuid-doctrine": "v2.1.0"
 	},
 	"require-dev": {
 		"symfony/thanks": "^1"
