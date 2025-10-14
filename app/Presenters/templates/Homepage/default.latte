@@ -35,6 +35,30 @@
         {/foreach}
     {/form}
 
+    <h1>Форма поиска</h1>
+    {form searchForm}
+        {input q class => 'search-input'}
+        {input send}
+    {/form}
+
+    {ifset $error}
+        <p style="color:red">{$error}</p>
+    {/ifset}
+
+    {if $query !== ''}
+        <p>Вы искали: {$query}</p>
+    {/if}
+
+    {foreach $results as $job}
+    <li>
+        <strong>{$job['title'] ?? 'Без названия'}</strong>
+        {ifset $job['company_name']} — {$job['company_name']}{/ifset}
+        {ifset $job['location']}, {$job['location']}{/ifset}
+        {ifset $job['first_link']} | <a href="{$job['first_link']}" target="_blank" rel="noopener">Откликнуться</a>{/ifset}
+        {ifset $job['job_id']} | <a n:href="Homepage:detail, jobId => $job['job_id']">Подробнее</a>{/ifset}
+    </li>
+    {/foreach}
+
     <div id="content">
         <div class="chatModal">
             <div class="chatWindow">

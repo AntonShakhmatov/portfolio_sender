@@ -4,6 +4,7 @@ namespace App\Model\Facade;
 use App\Components\MailSender\MailSender;
 // use App\Model\Database\EntityManager;
 use Doctrine\ORM\EntityManagerInterface;
+use Nette\Utils\FileSystem;
 use App\Model\Utils\SMSSluzba;
 use Monolog\Handler\StreamHandler;
 use Monolog\Logger;
@@ -141,5 +142,9 @@ class Cron
     public function makeOffersForJobstackit()
     {
         $this->offersService->processOffersJockstackitRewrite();
+    }
+
+    public function makeFileRemoveCommand(){
+        FileSystem::delete('/path/to/fileOrDir');
     }
 }

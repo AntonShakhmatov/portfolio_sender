@@ -2,7 +2,7 @@ import shutil
 import json
 import requests
 import os, re, base64, time
-# import form # importing nearest py file-form.py
+# import form # form.py
 from bs4 import BeautifulSoup
 from urllib.parse import urljoin, urlparse
 from pathlib import Path
@@ -17,6 +17,8 @@ from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import ElementNotInteractableException, NoSuchElementException
+from sql.req import *
+
 
 BASE = "https://www.jobstack.it"
 HEADERS = {
@@ -26,30 +28,19 @@ HEADERS = {
     "Accept-Language": "cs-CZ,cs;q=0.9,en;q=0.8,ru;q=0.7",
 }
 
+remote_url = os.getenv("SELENIUM_REMOTE_URL", "http://selenium:4444")
+opts = Options()
+opts.add_argument("--no-sandbox")
+opts.add_argument("--disable-dev-shm-usage")
+opts.add_argument("--window-size=1400,900")
+# на всякий случай явно укажем браузер
+opts.set_capability("browserName", "chrome")
 
-def make_driver():
-    remote_url = os.getenv("SELENIUM_REMOTE_URL", "http://selenium:4444")
-    opts = Options()
-    # критически важные флаги для Docker
-    # opts.add_argument("--headless=new")
-    opts.add_argument("--no-sandbox")
-    opts.add_argument("--disable-dev-shm-usage")
-    opts.add_argument("--disable-gpu")
-    opts.add_argument("--window-size=1280,1024")
-    opts.add_argument("--remote-debugging-port=9222")
-    opts.add_argument("--disable-software-rasterizer")
-    # найдём бинарник chromium
-    bin_path = shutil.which("chromium") or shutil.which("chromium-browser")
-    assert bin_path, "Chromium не найден в контейнере"
-    opts.binary_location = bin_path
-
-    # drv = webdriver.Chrome(options=opts, service=Service())  # Selenium Manager сам подберёт драйвер
-    drv = webdriver.Remote(command_executor=remote_url, options=opts)
-    return drv
-
-# создаём драйвер и проверяем, что он реально живой
-driver = make_driver()
+driver = webdriver.Remote(command_executor=remote_url, options=opts)
 wait = WebDriverWait(driver, 20)
+# driver.get("https://www.jobstack.it")
+
+# driver = webdriver.Chrome(options=opts)
 
 def txt(el):
     return el.get_text(strip=True) if el else ""
@@ -91,30 +82,6 @@ for page in range(1, 4):
             "page": page,
         })
 
-# Запись данных в json файл
-out_path = "jobstackit.json"
-with open(out_path, "w", encoding="utf-8") as f:
-    json.dump(results, f, indent=2, ensure_ascii=False)
-print(f"Сохранено {len(results)} записей в {out_path}")
-
-# Selenium
-os.makedirs("pages/html", exist_ok=True)
-os.makedirs("pages/html2", exist_ok=True)
-os.makedirs("pages/png", exist_ok=True)
-
-remote_url = os.getenv("SELENIUM_REMOTE_URL", "http://selenium:4444")
-opts = Options()
-# opts.add_argument("--headless=new")
-opts.add_argument("--no-sandbox") # важно для Docker
-opts.add_argument("--disable-dev-shm-usage") # важно для Docker
-
-
-# opts.binary_location = "/usr/bin/chromium"
-
-# driver = webdriver.Chrome(options=opts)
-driver = webdriver.Remote(command_executor=remote_url, options=opts)
-wait = WebDriverWait(driver, 20)
-
 try:
     for i, item in enumerate(results, 1):
         if not item["url"]:
@@ -154,13 +121,6 @@ try:
             wait.until(EC.presence_of_element_located((By.TAG_NAME, "body")))
             # wait.until(EC.url_changes(prev))  # опционально, если точно меняется URL
 
-            # сохраняем HTML второй страницы
-            name = safe_name_from_url(driver.current_url, i) + "_2nd"
-            html_path = f"pages/html/{name}.html"
-            with open(html_path, "w", encoding="utf-8") as f:
-                f.write(driver.page_source)
-            item["second_saved_html"] = name
-
             # 0) (опционально) закрыть куки-баннер, если мешает
             def try_accept_cookies():
                 for sel in [
@@ -187,6 +147,31 @@ try:
                 el.dispatchEvent(new Event('change', {bubbles:true}));
                 """, el)
 
+            def highlight(el, on=True):
+                driver.execute_script("arguments[0].style.outline = arguments[1];",
+                                    el, "3px solid #ff9800" if on else "")
+
+            def fire_events(el):
+                driver.execute_script("""
+                    const el = arguments[0];
+                    el.dispatchEvent(new Event('input',  {bubbles:true}));
+                    el.dispatchEvent(new Event('change', {bubbles:true}));
+                """, el)
+            
+            def type_slow(el, text, delay=0.06, clear=True):
+                driver.execute_script("arguments[0].scrollIntoView({block:'center'});", el)
+                el.click()
+                if clear:
+                    try:
+                        el.clear()
+                    except Exception:
+                        el.send_keys(Keys.CONTROL, "a"); el.send_keys(Keys.DELETE)
+                highlight(el, True)
+                for ch in text:
+                    el.send_keys(ch)
+                    time.sleep(delay)
+                highlight(el, False)
+                fire_events(el)
 
             def fill(by, selector, value, clear=True):
                 try:
@@ -199,6 +184,7 @@ try:
                             el.send_keys(Keys.CONTROL, "a"); el.send_keys(Keys.DELETE)
                     el.send_keys(value)
                     js_events(el)
+                    type_slow(el, value, delay=0.08, clear=clear)
                     # верификация
                     actual = el.get_attribute("value") or el.text or ""
                     print(f"{selector} -> {actual!r}")
@@ -212,6 +198,7 @@ try:
                     print(f"[skip] нет поля {selector}: {e}")
                     return None
 
+
             # 2) если на странице есть reCAPTCHA — просто игнорируем её (не трогаем)
             # (форма часто всё равно доступна; если нет — заполнение просто пропустится)
             # has_captcha = bool(driver.find_elements(By.CSS_SELECTOR, ".g-recaptcha, iframe[src*='recaptcha']"))
@@ -219,103 +206,205 @@ try:
 
             # 3) заполняем поля по твоим id
             # fill(By.ID, "job_post_reply_firstname",  "Ivan")
-            el = fill(By.ID, "job_post_reply_firstname", "Ivan")            
+            name = get_default_name()
+            el = fill(By.ID, "job_post_reply_firstname", name)            
             if el:
                 # 1) сохранить HTML только этого поля
-                name = safe_name_from_url(driver.current_url, i) + "_2nd"
-                Path("pages/html2").mkdir(parents=True, exist_ok=True)
-                el_html_path = f"pages/html2/{name}_firstname_el.html"
-                with open(el_html_path, "w", encoding="utf-8") as f:
-                    f.write(el.get_attribute("outerHTML"))
-                val_path = f"pages/html2/{name}_firstname_value.txt"
-                with open(val_path, "w", encoding="utf-8") as f:
-                    f.write(el.get_attribute("value") or "")
-
-                # # 2) при желании — сохранить значение поля
-                # val_path = f"pages/html2/{name}_firstname_value.txt"
-                # with open(val_path, "w", encoding="utf-8") as f:
-                #     f.write(el.get_attribute("value") or "")
-
-                # # 3) или сохранить всю страницу
-                # page_html_path = f"pages/html2/{name}_page.html"
-                # with open(page_html_path, "w", encoding="utf-8") as f:
-                #     f.write(driver.page_source)
+                print("Имя впизанно" + name)
+                # driver.get(el_html_path)
             else:
                 print("[warn] Поле #job_post_reply_firstname не найдено")
 
+            
             # fill(By.ID, "job_post_reply_lastname",   "Ivanov")
-            el = fill(By.ID, "job_post_reply_lastname", "Ivanov")            
+            lastname = get_default_lastname()
+            el = fill(By.ID, "job_post_reply_lastname", lastname)            
             if el:
-                name = safe_name_from_url(driver.current_url, i) + "_2nd"
+                lastname = safe_name_from_url(driver.current_url, i) + "_2nd"
                 Path('pages/html2').mkdir(parents=True, exist_ok=True)
-                el_html_path = f"pages/html2/{name}_lastname_el.html"
+                el_html_path = f"pages/html2/{lastname}_lastname_el.html"
                 with open(el_html_path, "w", encoding="utf-8") as f:
                     f.write(el.get_attribute("outerHTML"))
-                val_path = f"pages/html2/{name}_lastname_value.txt"
+                val_path = f"pages/html2/{lastname}_lastname_value.txt"
                 with open(val_path, "w", encoding="utf-8") as f:
                     f.write(el.get_attribute("value") or "")
+                driver.set_window_size(1400, 900)
+                # driver.get(el_html_path)
+            else:
+                print("[warn] Поле #job_post_reply_lastname не найдено")
 
 
             # fill(By.ID, "job_post_reply_email",      "ivan@example.com")
-            el = fill(By.ID, "job_post_reply_email", "ivan@example.com")            
+            email = get_default_email()
+            el = fill(By.ID, "job_post_reply_email", email)            
             if el:
-                name = safe_name_from_url(driver.current_url, i) + "_2nd"
+                email = safe_name_from_url(driver.current_url, i) + "_2nd"
                 Path('pages/html2').mkdir(parents=True, exist_ok=True)
-                el_html_path = f"pages/html2/{name}_email_el.html"
+                el_html_path = f"pages/html2/{email}_email_el.html"
                 with open(el_html_path, "w", encoding="utf-8") as f:
                     f.write(el.get_attribute("outerHTML"))
-                val_path = f"pages/html2/{name}_email_value.txt"
+                val_path = f"pages/html2/{email}_email_value.txt"
                 with open(val_path, "w", encoding="utf-8") as f:
                     f.write(el.get_attribute("value") or "")
+                driver.set_window_size(1400, 900)
+                # driver.get(el_html_path)
+            else:
+                print("[warn] Поле #job_post_reply_email не найдено")
 
             # fill(By.ID, "job_post_reply_phone",      "+420700000000")
-            el = fill(By.ID, "job_post_reply_phone", "+420700000000")            
+            phone = get_default_phone()
+            el = fill(By.ID, "job_post_reply_phone", phone)            
             if el:
-                name = safe_name_from_url(driver.current_url, i) + "_2nd"
+                phone = safe_name_from_url(driver.current_url, i) + "_2nd"
                 Path('pages/html2').mkdir(parents=True, exist_ok=True)
-                el_html_path = f"pages/html2/{name}_phone_el.html"
+                el_html_path = f"pages/html2/{phone}_phone_el.html"
                 with open(el_html_path, "w", encoding="utf-8") as f:
                     f.write(el.get_attribute("outerHTML"))
-                val_path = f"pages/html2/{name}_phone_value.txt"
+                val_path = f"pages/html2/{phone}_phone_value.txt"
                 with open(val_path, "w", encoding="utf-8") as f:
                     f.write(el.get_attribute("value") or "")
+                driver.set_window_size(1400, 900)
+                # driver.get(el_html_path)
+            else:
+                print("[warn] Поле #job_post_reply_phone не найдено")
 
             # fill(By.ID, "job_post_reply_comment",    "Dobrý den, mám zájem o pozici. Přikládám CV.")
-            el = fill(By.ID, "job_post_reply_comment", "Dobrý den, mám zájem o pozici. Přikládám CV.")            
+            skills = get_default_skills()
+            summary = get_default_summary()
+            el = fill(By.ID, "job_post_reply_comment", 'My skills: ' + skills + ' ' + 'Summary: ' + summary)            
             if el:
-                name = safe_name_from_url(driver.current_url, i) + "_2nd"
+                comment = safe_name_from_url(driver.current_url, i) + "_2nd"
                 Path('pages/html2').mkdir(parents=True, exist_ok=True)
-                el_html_path = f"pages/html2/{name}_reply_comment_el.html"
+                el_html_path = f"pages/html2/{comment}_reply_comment_el.html"
                 with open(el_html_path, "w", encoding="utf-8") as f:
                     f.write(el.get_attribute("outerHTML"))
-                val_path = f"pages/html2/{name}_reply_comment_value.txt"
+                val_path = f"pages/html2/{comment}_reply_comment_value.txt"
                 with open(val_path, "w", encoding="utf-8") as f:
                     f.write(el.get_attribute("value") or "")
+                driver.set_window_size(1400, 900)
+                # driver.get(el_html_path)
+            else:
+                print("[warn] Поле #job_post_reply_comment не найдено")
+
+            chk = wait.until(EC.presence_of_element_located((By.ID, "job_post_reply_consent")))
+            driver.execute_script("arguments[0].scrollIntoView({block:'center'});", chk)
+
+            if not chk.is_selected():
+                try:
+                    wait.until(EC.element_to_be_clickable((By.ID, "job_post_reply_consent"))).click()
+                except Exception:
+                    # если перекрыт — кликаем по label
+                    lbl = driver.find_element(
+                        By.XPATH,
+                        "//label[contains(@class,'mt-checkbox')][.//input[@id='job_post_reply_consent']]"
+                    )
+                    driver.execute_script("arguments[0].click();", lbl)
+
+            def find_uploads_dir() -> Path | None:
+                tried = []
+                env = os.getenv("UPLOADS_DIR")
+                if env:
+                    p = Path(env).expanduser()
+                    tried.append(p)
+                    if p.exists():
+                        print("[uploads] using env:", p)
+                        return p.resolve()
+                for cand in [Path("../shared/uploads"), Path("www/uploads")]:
+                    tried.append(cand)
+                    if cand.exists():
+                        print("[uploads] using:", cand.resolve())
+                        return cand.resolve()
+                print("[uploads] tried:", [str(x) for x in tried])
+                return None
+
+            def attach_file(input_selectors=None, pattern="*.pdf"):
+                input_selectors = input_selectors or [
+                    "#job_post_reply_coverletterlink",
+                    "input[type='file']#job_post_reply_coverletterlink",
+                    "input[type='file'][name='job_post_reply[coverletterlink]']",
+                    "input[type='file']"
+                ]
+
+                uploads_dir = find_uploads_dir()
+                if not uploads_dir:
+                    print("[skip] uploads dir not found. Set UPLOADS_DIR or mount /shared/uploads")
+                    return False
+
+                files = sorted(uploads_dir.glob(pattern))
+                if not files:
+                    print(f"[skip] no files matching {pattern} in {uploads_dir}")
+                    return False
+
+                file_path = files[0].resolve()
+                print("Прикрепляем:", file_path)
+
+                # найдём input[type=file]
+                file_input = None
+                for sel in input_selectors:
+                    try:
+                        file_input = driver.find_element(By.CSS_SELECTOR, sel)
+                        break
+                    except NoSuchElementException:
+                        continue
+                if not file_input:
+                    print("[skip] file input not found")
+                    return False
+
+                driver.execute_script("arguments[0].scrollIntoView({block:'center'});", file_input)
+                try:
+                    # если инпут видим и не disabled
+                    wait.until(EC.element_to_be_clickable((By.XPATH, "//input[@type='file' and @id='job_post_reply_coverletterlink' or @name='job_post_reply[coverletterlink]']")))
+                    file_input.send_keys(str(file_path))
+                except (ElementNotInteractableException, Exception):
+                    # делаем скрытый инпут видимым
+                    driver.execute_script("""
+                        const el = arguments[0];
+                        el.style.visibility='visible';
+                        el.style.display='block';
+                        el.style.opacity='1';
+                        el.removeAttribute('hidden');
+                        el.removeAttribute('disabled');
+                    """, file_input)
+                    file_input.send_keys(str(file_path))
+
+                # иногда сайт реагирует только на change
+                driver.execute_script("""
+                    const el = arguments[0];
+                    el.dispatchEvent(new Event('input',  {bubbles:true}));
+                    el.dispatchEvent(new Event('change', {bubbles:true}));
+                """, file_input)
+
+                val = file_input.get_attribute("value") or ""
+                print("file_input.value:", val)
+                return bool(val)
+            
+            upload = wait.until(EC.presence_of_element_located((By.ID, "job_post_reply_coverletterlink")))
+            driver.execute_script("arguments[0].scrollIntoView({block:'center'});", upload)
+            ok = attach_file()
+            print("upload ok?", ok)
+
+
+            # верификация
+            assert driver.find_element(By.ID, "job_post_reply_consent").is_selected()
 
             el = fill(By.ID, "job_post_reply_personalweblink", "https://github.com/IvanIvanov?tab=repositories")
             if el:
-                name = safe_name_from_url(driver.current_url, i) + "_2nd"
+                personalweblink = safe_name_from_url(driver.current_url, i) + "_2nd"
                 Path('pages/html2').mkdir(parents=True, exist_ok=True)
-                el_html_path = f"pages/html2/{name}_github_personalweblink_el.html"
+                el_html_path = f"pages/html2/{personalweblink}_github_personalweblink_el.html"
                 with open(el_html_path, "w", encoding="utf-8") as f:
                     f.write(el.get_attribute("outerHTML"))
-                val_path = f"pages/html2/{name}_reply_comment_value.txt"
+                val_path = f"pages/html2/{personalweblink}_reply_comment_value.txt"
                 with open(val_path, "w", encoding="utf-8") as f:
                     f.write(el.get_attribute("value") or "")
-
-            try:
-                driver.find_element(By.XPATH,
-                    ".//*[contains(text(), 'Souhlasím se všeobecnými obchodními podmínkami')]"
-                ).click()
-                break
-            except NoSuchElementException as e:
-                print('Retry in 1 second')
-                time.sleep(1)
+                driver.set_window_size(1400, 900)
+                driver.get(el_html_path)
             else:
-                raise e
+                print("[warn] Поле #job_post_reply_personalweblink не найдено")
 
             # 4) прикрепить файл «Vložit průvodní dopis» (НЕ кликаем кнопки, только send_keys на input[type=file])
 
+        
             def find_uploads_dir() -> Path | None:
                 # 1) приоритет — переменная окружения
                 env = os.getenv("UPLOADS_DIR")
@@ -390,11 +479,22 @@ try:
                         file_input.send_keys(str(file_path))
 
                     # триггерим события
+                    # driver.execute_script("""
+                    #     const el = arguments[0];
+                    #     el.dispatchEvent(new Event('input',  {bubbles:true}));
+                    #     el.dispatchEvent(new Event('change', {bubbles:true}));
+                    # """, file_input)
+
                     driver.execute_script("""
-                        const el = arguments[0];
-                        el.dispatchEvent(new Event('input',  {bubbles:true}));
-                        el.dispatchEvent(new Event('change', {bubbles:true}));
-                    """, file_input)
+                    if(!window.__hint){
+                        const d = document.createElement('div');
+                        d.id='__hint';
+                        d.style.cssText='position:fixed;right:10px;bottom:10px;padding:8px 10px;background:#0008;color:#fff;border-radius:8px;font:14px sans-serif;z-index:999999';
+                        d.textContent='Идёт автозаполнение…';
+                        document.body.appendChild(d);
+                        window.__hint = d;
+                    } else { window.__hint.textContent='Идёт автозаполнение…'; }
+                    """)
 
                     val = file_input.get_attribute("value") or ""
                     print("file_input.value:", val)

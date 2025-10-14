@@ -11,3 +11,9 @@ pymysql
 sqlalchemy
 python-dotenv
 undetected-chromedriver==3.5.5
+mysql-connector-python
+psycopg2
+SQLAlchemy==2.0.35
+psycopg2
+pydantic-settings==2.3.4
+google-generativeai

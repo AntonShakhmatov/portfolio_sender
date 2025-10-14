@@ -1,4 +1,27 @@
 services:
+  fix-perms:
+    image: alpine:3.20
+    # UID/GID 33 — это www-data в Debian/Ubuntu
+    command: >
+      sh -lc '
+        adduser -S -u 33 -g 33 www-data || true;
+        mkdir -p /mnt/log /mnt/temp /mnt/vendor;
+        # права владельца
+        chown -R 33:33 /mnt/log /mnt/temp /mnt/vendor 2>/dev/null || true;
+        # каталоги 775, файлы 664 (мягко)
+        find /mnt/log    -type d -exec chmod 775 {} + 2>/dev/null || true;
+        find /mnt/log    -type f -exec chmod 664 {} + 2>/dev/null || true;
+        find /mnt/temp   -type d -exec chmod 775 {} + 2>/dev/null || true;
+        find /mnt/temp   -type f -exec chmod 664 {} + 2>/dev/null || true;
+        find /mnt/vendor -type d -exec chmod 775 {} + 2>/dev/null || true;
+        find /mnt/vendor -type f -exec chmod 664 {} + 2>/dev/null || true;
+      '
+    volumes:
+      - logs:/mnt/log
+      - tmpdir:/mnt/temp
+      # Если vendor — **отдельный том или bind**, примонтируй его сюда:
+      # - ../vendor:/mnt/vendor
+    restart: "no"
   php:
     image: example_php
     build:
@@ -50,6 +73,7 @@ services:
       DB_USER: test
       DB_PASS: test
       DB_NAME: test
+      # DATABASE_URL: "mysql+pymysql://test:test@database:3306/test"
     depends_on: [database]
     command: ["python", "database.py"]
 

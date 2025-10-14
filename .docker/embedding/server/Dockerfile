@@ -14,6 +14,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libx11-6 libxcb1 libxcomposite1 libxcursor1 libxdamage1 \
     libxext6 libxfixes3 libxi6 libxrandr2 libxrender1 libxshmfence1 \
     libxss1 libxtst6 \
+    libpq-dev \
     ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 

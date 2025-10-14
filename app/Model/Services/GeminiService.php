@@ -23,11 +23,16 @@ final class GeminiService
 
         $prompt = <<<PROMPT
         В этом сообщении — резюме. Выдели:
-        1) "keywords": список 5–12 ключевых фраз,
-        2) "skills": список навыков,
-        3) "summary": одно короткое предложение (1–2 строки).
+        1) "name": "Имя",
+        2) "lastname": "Фамилия",
+        3) "phone": "Телефон",
+        4) "email": "Email",
+        5) "location": "Город/страна (если явно указано, иначе пусто)",
+        6) "keywords": список 5–12 ключевых фраз,
+        7) "skills": список навыков,
+        8) "summary": одно короткое предложение (1–2 строки). Пиши на чешском, не забудь указать, что всё заполнено и написано моим ботом.
 
-        Верни строго JSON с полями: {"keywords": [...], "skills": [...], "summary": "..."}.
+        Верни строго JSON с полями: {"name": "...", "lastname": "...", "phone": "...", "email": "...", "location": "...", "keywords": [...], "skills": [...], "summary": "..."}.
         Текст резюме:
         {$text}
         PROMPT;
@@ -84,10 +89,15 @@ final class GeminiService
             $data = Json::decode($clean, Json::FORCE_ARRAY);
         } catch (JsonException) {
             // fallback: вернём как summary, без падения
-            $data = ['keywords' => [], 'skills' => [], 'summary' => $clean];
+            $data = ['name' => $clean, 'lastname' => $clean, 'phone' => $clean, 'email' => $clean, 'location' => $clean, 'keywords' => [], 'skills' => [], 'summary' => $clean];
         }
 
         return [
+            'name' => $data['name'] ?? '',
+            'lastname' => $data['lastname'] ?? '',
+            'phone' => $data['phone'] ?? '',
+            'email' => $data['email'] ?? '',
+            'location' => $data['location'] ?? '',
             'keywords' => $data['keywords'] ?? [],
             'skills'   => $data['skills']   ?? [],
             'summary'  => $data['summary']  ?? '',

@@ -18,6 +18,7 @@ use App\Model\Services\PdfTextExtractor;
 use Smalot\PdfParser\Parser as Smalot;
 use Symfony\Component\Process\Process;
 use Nette\Application\Responses\TextResponse;
+use App\Model\Services\SerpClient;
 
 final class HomepagePresenter extends Nette\Application\UI\Presenter
 {
@@ -36,11 +37,45 @@ final class HomepagePresenter extends Nette\Application\UI\Presenter
         private PdfTextExtractor $extractor,
         private GeminiService $gemini,
         private Explorer $database,
+        private SerpClient $serp,
         private bool $preferPdfToText = true,
         )
     {
         parent::__construct();
-        $this->database = $database;
+    }
+
+    protected function createComponentSearchForm(): Form
+    {
+        $f = new Form;
+        $f->addText('q', 'Поиск')
+        ->setHtmlAttribute('placeholder', 'Напишите и нажмите Enter');
+        $f->addSubmit('send', 'Найти');
+
+        $f->onSuccess[] = function (Form $form, array $values): void {
+            $q = trim((string) $values['q']);
+            $this->redirect('this', ['q' => $q]);
+        };
+
+        return $f;
+    }
+
+    public function renderDefault(?string $q = null): void
+    {
+        $this->template->query = $q ?? '';
+        try {
+            $this->template->results = $q ? $this->serp->searchJobs($q) : [];
+        } catch (\Throwable $e) {
+            \Tracy\Debugger::log($e);
+            $this->template->error = 'Ошибка поиска. Попробуйте позже.';
+            $this->template->results = [];
+        }
+    }
+
+    public function renderDetail(string $jobId): void
+    {
+        $detail = $this->serp->getJobDetails($jobId);
+        $this->template->detail = $detail;
+        $this->template->applyOptions = $this->serp->resolveApplyLinks($jobId);
     }
 
     /** @var EmbeddingsService @inject */
@@ -147,36 +182,89 @@ final class HomepagePresenter extends Nette\Application\UI\Presenter
 
     public function actionCreate(): void
     {
-        $result = ['summary' => '', 'keywords' => [], 'skills' => []];
-    
+        $text = $this->extractTextFromLastUpload();
+        $ai   = $this->gemini->extractKeywords($text) ?? [];
+
+        $data = [
+            'name'     => (string)($ai['name'] ?? ''),
+            'lastname' => (string)($ai['lastname'] ?? ''),
+            'phone'    => (string)($ai['phone'] ?? ''),
+            'email'    => (string)($ai['email'] ?? ''),
+            'location' => (string)($ai['location'] ?? ''),
+            'summary'  => (string)($ai['summary'] ?? ''),
+            'keywords' => array_values((array)($ai['keywords'] ?? [])),
+            'skills'   => array_values((array)($ai['skills'] ?? [])),
+        ];
+
         try {
-            $text   = $this->extractTextFromLastUpload();
-            $ai     = $this->gemini->extractKeywords($text) ?? [];
-    
-            $result['summary']  = (string) ($ai['summary']  ?? '');
-            $result['keywords'] = array_values((array) ($ai['keywords'] ?? []));
-            $result['skills']   = array_values((array) ($ai['skills']   ?? []));
-    
-            $rowId = $this->saveProfileResult($result);
-    
+            $this->database->beginTransaction();
+
+            // Сохраняем профиль
+            $profile = $this->database->table('profiles')->insert([
+                'name'     => $data['name'],
+                'lastname' => $data['lastname'],
+                'phone'    => $data['phone'],
+                'email'    => $data['email'],
+                'location' => $data['location'],
+            ]);
+            if (!$profile) {
+                throw new \RuntimeException('Не удалось создать профиль.');
+            }
+            $profileId = (int) $profile->getPrimary();
+
+            // Сохраняем навыки, связав с профилем (нужно поле profile_id в БД!)
+            $skills = $this->database->table('profile_skills')->insert([
+                'id' => $profileId,
+                'summary'    => $data['summary'],
+                'keywords'   => Json::encode($data['keywords']),
+                'skills'     => Json::encode($data['skills']),
+            ]);
+            if (!$skills) {
+                throw new \RuntimeException('Не удалось создать profile_skills.');
+            }
+            $skillsId = (int) $skills->getPrimary();
+
+            $this->database->commit();
+
+            // 3) ОДИН sendJson в самом конце
             $this->sendJson([
                 'ok'       => true,
-                'id'       => $rowId,
                 'message'  => 'Soubor uložen.',
                 'redirect' => $this->link('Homepage:create'),
-                'summary'  => $result['summary'],
-                'keywords' => $result['keywords'],
-                'skills'   => $result['skills'],
+                'id' => $profileId,
+                'skills_id'  => $skillsId,
+                'summary'  => $data['summary'],
+                'keywords' => $data['keywords'],
+                'skills'   => $data['skills'],
+                'name'     => $data['name'],
+                'lastname' => $data['lastname'],
+                'phone'    => $data['phone'],
+                'email'    => $data['email'],
+                'location'    => $data['location'],
             ]);
         } catch (\Throwable $e) {
+            $this->database->rollBack();
             $this->sendJson([
                 'ok'    => false,
                 'error' => $e->getMessage(),
             ]);
         }
-    }    
+    }
+
 
     private function saveProfileResult(array $j): int
+    {
+        $row = $this->database->table('profiles')->insert([
+            'name' => $j['name'],
+            'lastname' => $j['lastname'],
+            'phone' => $j['phone'],
+            'email' => $j['email'],
+            'location' => $j['location'],
+        ]);
+        return $row->getPrimary();
+    }  
+
+    private function saveProfileSkillsResult(array $j): int
     {
         $row = $this->database->table('profile_skills')->insert([
             'summary'  => $j['summary'],
@@ -227,33 +315,4 @@ final class HomepagePresenter extends Nette\Application\UI\Presenter
         $this->getHttpResponse()->setContentType('text/plain', 'UTF-8');
         $this->sendResponse(new TextResponse($text));
     }
-
-    // public function actionDefault(): void
-    // {
-    //     $path = dirname(__DIR__, 2) . '/.docker/embedding/server/job_parsed.json';
-
-    
-    //     if (!is_file($path)) {
-    //         throw new \RuntimeException("Файл не найден: $path");
-    //     }
-    
-    //     $json = file_get_contents($path);
-    //     if ($json === false) {
-    //         throw new \RuntimeException('Не удалось считать job_parsed.json');
-    //     }
-    
-    //     $data = json_decode($json, true, 512, JSON_THROW_ON_ERROR);
-
-    //     $array = json_encode($data);
-
-    //     $row = [
-    //         'title'   => $array['title']    ?? '',
-    //         'company' => $array['company']  ?? '',
-    //         'location'=> $array['location'] ?? '',
-    //         'salary'  => $array['salary']   ?? '',
-    //         'url'     => $array['url']      ?? '',
-    //     ];
-
-    //     print_r($row);
-    // }    
 }

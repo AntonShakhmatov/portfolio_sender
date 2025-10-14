@@ -121,11 +121,11 @@ try:
             # wait.until(EC.url_changes(prev))  # опционально, если точно меняется URL
 
             # сохраняем HTML второй страницы
-            name = safe_name_from_url(driver.current_url, i) + "_2nd"
-            html_path = f"pages/html/{name}.html"
-            with open(html_path, "w", encoding="utf-8") as f:
-                f.write(driver.page_source)
-            item["second_saved_html"] = name
+            # name = safe_name_from_url(driver.current_url, i) + "_2nd"
+            # html_path = f"pages/html/{name}.html"
+            # with open(html_path, "w", encoding="utf-8") as f:
+            #     f.write(driver.page_source)
+            # item["second_saved_html"] = name
 
             # 0) (опционально) закрыть куки-баннер, если мешает
             def try_accept_cookies():
