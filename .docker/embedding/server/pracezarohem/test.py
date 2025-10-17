@@ -22,103 +22,123 @@ from selenium.common.exceptions import (
 )
 from sql.req import *
 
+wait = WebDriverWait(driver, 15)
 BASE = "https://pracezarohem.cz"
 
 # connection = sq.connect('jobs.db') подключение к базе SQLite --- IGNORE ---
 
 try:
-    time.sleep(5)
-    driver.get(BASE)
-    el = wait.until(EC.element_to_be_clickable((By.ID, "professions")))
-    el.click()
-    time.sleep(2)
+    def open_home():
+        driver.get(BASE)
+        try:
+            wait.until(EC.element_to_be_clickable((By.ID, "professions"))).click()
 
-    professions = get_default_profession() or ['PHP']
-    # если вернулась строка — делаем из неё список
-    if isinstance(professions, str):
-        professions = [professions]
+        except Exception:
+            pass
+        return wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, "input#professions")))
+
+    def get_location_input():
+        try:
+            wait.until(EC.element_to_be_clickable((By.ID, "location"))).click()
+        except Exception:
+            pass
+        return wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, "input#location")))
 
 
-    wait = WebDriverWait(driver, 10)
+    def wait_profession_chip(prof: str):
+        # дождаться появления чипса/тэга с выбранной профессией (селектор приблизительный)
+        wait.until(EC.presence_of_element_located((
+            By.XPATH,
+            f"//*[contains(@class,'Chip') or contains(@class,'Tag') or contains(@class,'MultiSelect')]"
+            f"[contains(., {json.dumps(prof)})]"
+        )))
 
-    # 1) Получаем значение из БД
-    raw_prof = get_default_profession() or 'PHP'
+    def wait_location_applied():
+        # дождаться, что локация применена (бейдж/значение в поле)
+        wait.until(EC.any_of(
+            EC.presence_of_element_located((
+                By.XPATH, "//*[contains(@class,'Chip') or contains(@class,'Tag')][contains(., 'Praha')]"
+            )),
+            EC.text_to_be_present_in_element_value((By.CSS_SELECTOR, "input#location"), "Praha")
+        ))
 
-    # 2) Превращаем в список слов/фраз
-    #    Разделители: запятая, точка с запятой, слэш, перевод строки или пробел(ы)
-    if isinstance(raw_prof, str):
-        professions = [p.strip() for p in re.split(r'[,\n;/]+|\s+', raw_prof) if p.strip()]
-    else:
-        professions = list(raw_prof)
+    # входные данные
+    # professions = get_default_profession() or ['PHP']
+    professions = ['webmaster', 'Online Marketing', 'PHP', 'programator']
+    seen=set(); professions=[p for p in professions if p and not(p in seen or seen.add(p))]
+    # loc_value = get_default_location() or 'Praha'
+    # if isinstance(loc_value, list): loc_value = (loc_value[0] if loc_value else 'Praha')
+    # loc_value = str(loc_value).strip() or 'Praha'
 
-    # Если хотите резать только по ПРОБЕЛАМ — используйте: raw_prof.split()
+    cities = ['Praha', 'Brno', 'Olomouc', 'Ostrava', 'Plzeň']
 
-    try:
-        # клик по полю один раз, затем вводим по одному СЛОВУ
-        field = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, "input#professions")))
-        field.click()
-        time.sleep(2)
-
-        for prof in professions:
+    for city in cities:                     # <-- внешний цикл по городам
+        print(f"=== Город: {city} ===")
+        for prof in professions:            # <-- внутри — твой текущий цикл по профессиям
             try:
-                field = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, "input#professions")))
-                field.click()
+                # 1) профессия
+                time.sleep(5)
+                field = open_home()
                 field.clear()
                 field.send_keys(prof)
-
-                # если есть автодополнение — выбираем первую подсказку
+                time.sleep(2)
                 field.send_keys(Keys.ARROW_DOWN)
                 field.send_keys(Keys.ENTER)
 
-                print(f"[ok] Профессия/навык «{prof}» добавлен")
-                time.sleep(0.3)
+                # (у тебя здесь первый submit — оставляю как есть)
+                find_and_click(
+                    By.XPATH,
+                    "/html/body/div[1]/div/header/div[2]/div/div/div/form/div/button",
+                )
+                time.sleep(5)
+
+                # 2) локация
+                loc_input = get_location_input()
+                loc_input.click()
+                time.sleep(3)
+                loc_input.send_keys(Keys.CONTROL, 'a')
+                loc_input.send_keys(Keys.DELETE)
+                wait.until(lambda d: (loc_input.get_attribute('value') or '') == '')
+                time.sleep(1)
+                loc_input.clear()
+                loc_input.send_keys(city)       # <-- подставляем ТЕКУЩИЙ город
+                time.sleep(2)
+                loc_input.send_keys(Keys.ENTER)
+                driver.switch_to.active_element.send_keys(Keys.ESCAPE)
+
+                # submit после выбора города
+                find_and_click(
+                    By.XPATH,
+                    "/html/body/div[1]/div/header/div[2]/div/div/div/form/div/button",
+                )
+                time.sleep(5)
+
+                # закрыть модалку (оставляю твой локатор)
+                try:
+                    find_and_click(
+                        By.XPATH,
+                        "/html/body/div[4]/div/div[1]/div/div/div/div[1]/div[2]/button"
+                    )
+                except Exception:
+                    pass
+
+                # ожидание результатов
+                wait.until(EC.presence_of_element_located(
+                    (By.CSS_SELECTOR, "a:has(h2.typography-heading-small-text.mb-3)")
+                ))
+
+                print(f"[ok] «{prof}» @ {city} — результаты готовы")
+                # ... здесь твоя обработка результатов ...
+
+            except StaleElementReferenceException:
+                print(f"[warn] stale element: «{prof}» @ {city}, пробую следующий")
+                continue
             except Exception as e:
-                print(f"[warn] Не удалось ввести «{prof}»: {e}")
+                print(f"[warn] Ошибка при «{prof}» @ {city}: {e}")
+                continue
 
-        # Кнопка
-        try:
-            find_and_click(By.XPATH, "/html/body/div[1]/div/header/div[2]/div/div/div/form/div/button")
-        except Exception as e:
-            print("[warn] Не удалось кликнуть по кнопке 'NABÍDEK':", e)
-
-        time.sleep(10)
-
-
-
-        try:
-            find_and_click(
-                By.XPATH,
-                "/html/body/div[1]/div/header/div[2]/div/div/div/form/div/button",
-            )
-        except Exception as e:
-            print("[warn] Не удалось кликнуть по кнопке 'NABÍDEK':", e)
-        time.sleep(10)
-
-        # location = get_default_location() or 'Praha'
-        location = 'Praha'
-        # Praha, okres Praha, Praha
-        el = fill(By.CSS_SELECTOR, "input#location", location)  
+        # после завершения всех профессий для города можно сделать паузу
         time.sleep(2)
-        # driver.switch_to.active_element.send_keys(Keys.ARROW_DOWN)
-        driver.switch_to.active_element.send_keys(Keys.ENTER)
-        if el:
-            print("location filled")
-        else:
-            print("[warn] Поле #location не найдено")
-
-        time.sleep(3)
-
-        driver.switch_to.active_element.send_keys(Keys.ESCAPE)
-
-        try:
-            find_and_click(
-                By.XPATH,
-                "/html/body/div[1]/div/header/div[2]/div/div/div/form/div/button",
-            )
-        except Exception as e:
-            print("[warn] Не удалось кликнуть по кнопке 'NABÍDEK':", e)
-        time.sleep(5)
-        
 
         results_url = driver.current_url
 
@@ -277,28 +297,42 @@ try:
             name  = get_default_name() or 'Anton'
             lastname  = get_default_lastname() or 'Shakhmatov'
             phone  = get_default_phone() or '773694287'
+            # phone  = '773694287'
             email  = get_default_email() or 'xshakhmatov@gmail.com'
             skills  = get_default_skills() or 'Ahoj, mám zájem o tuto pozici. Děkuji.'
             description  = get_default_summary() or 'Ahoj, mám zájem o tuto pozici. Děkuji.'
 
             # заполнение формы
             try:
-                el = fill(By.CSS_SELECTOR, "textarea", "My skills: " + skills + "." + " Summary: " + description)
+                # 1) сообщение в textarea как было
+                el = fill(By.CSS_SELECTOR, "textarea",
+                        "O mně: Ahoj, jsem pomocná UI silá vytvořená Antonem Shakhmatovem. Hledám práci pro svého tvůrce. Umi dělát věla zajimavých veci. "
+                        "Bližši informace o mně najdeš na: https://github.com/AntonShakhmatov/portfolio_sender \n"
+                        "My skills: " + skills + ".\n" + " Summary: " + description)
                 print("textarea filled" if el else "[warn] textarea not found")
 
-                el = fill(By.CSS_SELECTOR, "input#name", name);      print("name filled" if el else "[warn] #name not found")
-                el = fill(By.CSS_SELECTOR, "input#surname", lastname); print("surname filled" if el else "[warn] #surname not found")
+                # 2) пробуем найти и заполнить #name
+                name_el = fill(By.CSS_SELECTOR, "input#name", name)
+                if not name_el:
+                    print("[info] #name not found → пропускаю персональные поля и сразу перехожу к чекбоксам/отправке")
+                else:
+                    print("name filled")
+                    el = fill(By.CSS_SELECTOR, "input#surname", lastname); print("surname filled" if el else "[warn] #surname not found")
 
-                el = fill(By.CSS_SELECTOR, "select#prefix", "+420")
-                driver.switch_to.active_element.send_keys(Keys.ENTER)
-                print("prefix filled" if el else "[warn] #prefix not found")
+                    el = fill(By.CSS_SELECTOR, "select#prefix", "+420")
+                    driver.switch_to.active_element.send_keys(Keys.ENTER)
+                    print("prefix filled" if el else "[warn] #prefix not found")
 
-                el = fill(By.CSS_SELECTOR, "input#phone", phone); print("phone filled" if el else "[warn] #phone not found")
-                driver.switch_to.active_element.send_keys(Keys.ENTER)
-                driver.switch_to.active_element.send_keys(Keys.BACKSPACE)
-                el = fill(By.CSS_SELECTOR, "input#email", email); print("email filled" if el else "[warn] #email not found")
+                    el = fill(By.CSS_SELECTOR, "input#phone", phone); print("phone filled" if el else "[warn] #phone not found")
+                    try:
+                        wait.until(EC.element_to_be_clickable((By.ID, "email"))).click()
+                        driver.switch_to.active_element.send_keys(Keys.ENTER)
+                        driver.switch_to.active_element.send_keys(Keys.BACKSPACE)
+                    except Exception:
+                        pass
+                    el = fill(By.CSS_SELECTOR, "input#email", email); print("email filled" if el else "[warn] #email not found")
 
-                # отметить все чекбоксы согласий (если их несколько)
+                # 3) чекбоксы (общий блок — выполняется в обоих случаях)
                 for cb in driver.find_elements(By.CSS_SELECTOR, "input.CheckboxField__input"):
                     try:
                         driver.execute_script("arguments[0].scrollIntoView({block:'center'});", cb)
@@ -307,24 +341,25 @@ try:
                     except Exception:
                         pass
 
-                # отправка формы
-                # sent = False
-                # for xp in [
-                #     "//button[not(@disabled) and (contains(., 'Odeslat') or contains(., 'Odpovědět'))]",
-                #     "//input[@type='submit' and not(@disabled)]",
-                #     "//button[@type='submit' and not(@disabled)]"
-                # ]:
-                #     try:
-                #         btn = WebDriverWait(driver, 5).until(EC.element_to_be_clickable((By.XPATH, xp)))
-                #         driver.execute_script("arguments[0].scrollIntoView({block:'center'});", btn)
-                #         driver.execute_script("arguments[0].click();", btn)
-                #         sent = True
-                #         break
-                #     except Exception:
-                #         continue
-                # print("form sent clicked?" , sent)
+                # 4) отправка формы (общий блок)
+                sent = False
+                for xp in [
+                    "//button[not(@disabled) and (contains(., 'Odeslat') or contains(., 'Odpovědět'))]",
+                    "//input[@type='submit' and not(@disabled)]",
+                    "//button[@type='submit' and not(@disabled)]"
+                ]:
+                    try:
+                        btn = WebDriverWait(driver, 5).until(EC.element_to_be_clickable((By.XPATH, xp)))
+                        driver.execute_script("arguments[0].scrollIntoView({block:'center'});", btn)
+                        driver.execute_script("arguments[0].click();", btn)
+                        sent = True
+                        break
+                    except Exception:
+                        continue
+                print("form sent clicked?", sent)
 
-                # wait_thanks_or_timeout(12)
+                wait_thanks_or_timeout(5)
+                time.sleep(5)
 
             except Exception as e:
                 print("[warn] заполнение/отправка формы:", e)
@@ -345,19 +380,27 @@ try:
                 )
 
         # --- 3) основной прогон по вакансиям на странице ---
-        job_hrefs = get_job_hrefs(limit=None)  # например limit=5, чтобы не улететь по всем
-        print("found jobs:", len(job_hrefs))
+        job_hrefs = get_job_hrefs(limit=None)
 
         processed = []
         for href in job_hrefs:
+            # 1) ПРОВЕРКА — уже откликались?
+            if has_job_been_applied(href):
+                print("[skip] уже откликались:", href)
+                # можно помечать как skipped (если хотите логировать пропуски):
+                mark_job_applied(href, city, prof, status='skipped', note='duplicate')
+                continue
+
             try:
-                complete_proposal(href)
+                complete_proposal(href)  # ваш отклик
                 processed.append(href)
-                # небольшая пауза между откликами, чтоб не выглядеть как бот
+                # 2) ОТМЕТИТЬ УСПЕШНЫЙ ОТКЛИК
+                mark_job_applied(href, city, prof, status='sent')
                 time.sleep(2)
             except Exception as e:
                 print("[warn] ошибка на вакансии:", href, e)
-                # вернуться на список, если выбило
+                # 3) ОТМЕТИТЬ НЕУДАЧУ (чтобы не зациклиться)
+                mark_job_applied(href, city, prof, status='failed', note=str(e)[:200])
                 try:
                     driver.switch_to.window(driver.window_handles[0])
                 except Exception:
@@ -369,8 +412,8 @@ try:
 
         print("Eto konec script-a")
 
-    except Exception as e:
-        print(f"[err] Поле #professions не найдено/не кликабельно: {e}")
+    # except Exception as e:
+    #     print(f"[err] Поле #professions не найдено/не кликабельно: {e}")
 
         time.sleep(3)
 
