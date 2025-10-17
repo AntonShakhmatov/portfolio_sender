@@ -22,7 +22,7 @@ from selenium.common.exceptions import (
 )
 from sql.req import *
 
-GEMINI_API_KEY="AIzaSyAm7ORuhcNUOac8q5rxcdJHmY5ZtCawfAg"
+GEMINI_API_KEY="<API_HERE>"
 
 BASE = 'https://www.reedglobal.cz/'
 
